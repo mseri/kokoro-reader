@@ -1,30 +1,55 @@
+#!/usr/bin/env python3
 import asyncio
+import sys
+import argparse
+import os
 
 import sounddevice as sd
 
 from kokoro_onnx import Kokoro
 
-text = """
-We've just been hearing from Matthew Cappucci, a senior meteorologist at the weather app MyRadar, who says Kansas City is seeing its heaviest snow in 32 years - with more than a foot (30 to 40cm) having come down so far.
-
-Despite it looking as though the storm is slowly moving eastwards, Cappucci says the situation in Kansas and Missouri remains serious.
-
-He says some areas near the Ohio River are like "skating rinks", telling our colleagues on Newsday that in Missouri in particular there is concern about how many people have lost power, and will lose power, creating enough ice to pull power lines down.
-
-Temperatures are set to drop in the next several days, in may cases dipping maybe below minus 10 to minus 15 degrees Celsius for an extended period of time.
-
-There is a special alert for Kansas, urging people not to leave their homes: "The ploughs are getting stuck, the police are getting stuck, everybody’s getting stuck - stay home."
-"""
-
 
 async def main():
+    parser = argparse.ArgumentParser(description='Text-to-speech using Kokoro')
+    parser.add_argument('-f', '--file', help='Input text file (if not provided, reads from stdin)')
+    parser.add_argument('-v', '--voice', default='af_bella', help='Voice to use (default: af_bella)')
+    parser.add_argument('-s', '--speed', type=float, default=1.0, help='Speech speed (default: 1.0)')
+    parser.add_argument('-l', '--lang', default='en-us', help='Language (default: en-us)')
+    
+    args = parser.parse_args()
+    
+    # Read text from file or stdin
+    try:
+        if args.file:
+            # Read from file
+            try:
+                with open(args.file, 'r', encoding='utf-8') as f:
+                    text = f.read()
+            except FileNotFoundError:
+                print(f"Error: File '{args.file}' not found", file=sys.stderr)
+                sys.exit(1)
+            except Exception as e:
+                print(f"Error reading file: {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            # Read from stdin
+            text = sys.stdin.read()
+            
+        # Check if we got any text to process
+        if not text.strip():
+            print("Error: No text provided for processing", file=sys.stderr)
+            sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nInput interrupted. Exiting.", file=sys.stderr)
+        sys.exit(1)
+    
     kokoro = Kokoro("kokoro-v1.0.onnx", "voices-v1.0.bin")
 
     stream = kokoro.create_stream(
         text,
-        voice="af_bella",
-        speed=1.0,
-        lang="en-us",
+        voice=args.voice,
+        speed=args.speed,
+        lang=args.lang,
     )
 
     count = 0
@@ -35,4 +60,12 @@ async def main():
         sd.wait()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user. Exiting.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
