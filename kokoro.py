@@ -1,4 +1,27 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#   "kokoro-onnx",
+#   "sounddevice",
+# ]
+# ///
+"""
+Usage:
+1.
+    Install uv from https://docs.astral.sh/uv/getting-started/installation
+2.
+    Copy this file to new folder
+3.
+    Download these files
+    https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+    https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+4. Run
+    uv run kokoro.py
+
+For other languages read https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
+"""
+
 import asyncio
 import sys
 import argparse
