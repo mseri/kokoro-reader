@@ -2,12 +2,12 @@
 import asyncio
 import sys
 import argparse
-import os
 
 import sounddevice as sd
 
 from kokoro_onnx import Kokoro
 
+MAX_LEN = 1024  # Maximum number of lines to read in interactive mode
 
 async def main():
     parser = argparse.ArgumentParser(description='Text-to-speech using Kokoro')
@@ -15,41 +15,56 @@ async def main():
     parser.add_argument('-v', '--voice', default='af_bella', help='Voice to use (default: af_bella)')
     parser.add_argument('-s', '--speed', type=float, default=1.0, help='Speech speed (default: 1.0)')
     parser.add_argument('-l', '--lang', default='en-us', help='Language (default: en-us)')
-    
+    parser.add_argument('-i', '--interactive', action='store_true', help='Run in interactive mode')
+
     args = parser.parse_args()
-    
-    # Read text from file or stdin
-    try:
-        if args.file:
-            # Read from file
-            try:
-                with open(args.file, 'r', encoding='utf-8') as f:
-                    text = f.read()
-            except FileNotFoundError:
-                print(f"Error: File '{args.file}' not found", file=sys.stderr)
-                sys.exit(1)
-            except Exception as e:
-                print(f"Error reading file: {e}", file=sys.stderr)
-                sys.exit(1)
-        else:
-            # Read from stdin
-            text = sys.stdin.read()
-            
-        # Check if we got any text to process
-        if not text.strip():
-            print("Error: No text provided for processing", file=sys.stderr)
-            sys.exit(1)
-    except KeyboardInterrupt:
-        print("\nInput interrupted. Exiting.", file=sys.stderr)
-        sys.exit(1)
-    
+
+    # Initialize Kokoro
+    print("Loading Kokoro model...")
     kokoro = Kokoro("kokoro-v1.0.onnx", "voices-v1.0.bin")
+
+    if args.interactive:
+        await run_interactive_mode(kokoro, args.voice, args.speed, args.lang)
+    else:
+        # Read text from file or stdin
+        try:
+            if args.file:
+                # Read from file
+                try:
+                    with open(args.file, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                except FileNotFoundError:
+                    print(f"Error: File '{args.file}' not found", file=sys.stderr)
+                    sys.exit(1)
+                except Exception as e:
+                    print(f"Error reading file: {e}", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                # Read from stdin
+                text = sys.stdin.read()
+
+            # Check if we got any text to process
+            if not text.strip():
+                print("Error: No text provided for processing", file=sys.stderr)
+                sys.exit(1)
+        except KeyboardInterrupt:
+            print("\nInput interrupted. Exiting.", file=sys.stderr)
+            sys.exit(1)
+
+        await play_text(kokoro, text, args.voice, args.speed, args.lang)
+
+
+async def play_text(kokoro, text, voice, speed, lang):
+    """Process text with Kokoro and play audio"""
+    if not text.strip():
+        print("Error: No text provided")
+        return
 
     stream = kokoro.create_stream(
         text,
-        voice=args.voice,
-        speed=args.speed,
-        lang=args.lang,
+        voice=voice,
+        speed=speed,
+        lang=lang,
     )
 
     count = 0
@@ -58,6 +73,114 @@ async def main():
         print(f"Playing audio stream ({count})...")
         sd.play(samples, sample_rate)
         sd.wait()
+
+    print("Finished playing.")
+
+
+async def run_interactive_mode(kokoro, voice, speed, lang):
+    """Run in interactive mode where the model is loaded once and reused"""
+    print("\n=== Kokoro Interactive Mode ===")
+    print("Available commands:")
+    print("  TEXT          - Enter text directly (cannot start with '/', must end with /EOT)")
+    print("  /f PATH       - Read text from file")
+    print("  /v VOICE      - Change voice (current: {})".format(voice))
+    print("  /l LANG       - Change language (current: {})".format(lang))
+    print("  /s SPEED      - Change speed (current: {})".format(speed))
+    print("  /q            - Quit")
+
+    current_voice = voice
+    current_speed = speed
+    current_lang = lang
+
+    # Main interaction loop
+    while True:
+        try:
+            print("\n> ", end="", flush=True)
+            line = sys.stdin.readline().strip()
+
+            # Handle empty input
+            if not line:
+                continue
+
+            # Handle commands starting with /
+            if line.startswith('/'):
+                parts = line.split(maxsplit=1)
+                cmd = parts[0].lower()
+                arg = parts[1] if len(parts) > 1 else ""
+
+                if cmd == '/q':
+                    print("Exiting interactive mode.")
+                    break
+
+                elif cmd == '/f':
+                    if not arg:
+                        print("Error: Missing file path")
+                        continue
+
+                    try:
+                        with open(arg, 'r', encoding='utf-8') as f:
+                            text = f.read()
+                        await play_text(kokoro, text, current_voice, current_speed, current_lang)
+                    except FileNotFoundError:
+                        print(f"Error: File '{arg}' not found")
+                    except Exception as e:
+                        print(f"Error reading file: {e}")
+
+                elif cmd == '/v':
+                    if not arg:
+                        print("Error: Missing voice parameter")
+                        continue
+                    current_voice = arg
+                    print(f"Voice changed to: {current_voice}")
+
+                elif cmd == '/l':
+                    if not arg:
+                        print("Error: Missing language parameter")
+                        continue
+                    current_lang = arg
+                    print(f"Language changed to: {current_lang}")
+
+                elif cmd == '/s':
+                    if not arg:
+                        print("Error: Missing speed parameter")
+                        continue
+                    try:
+                        current_speed = float(arg)
+                        print(f"Speed changed to: {current_speed}")
+                    except ValueError:
+                        print("Error: Speed must be a number")
+
+                else:
+                    print(f"Unknown command: {cmd}")
+
+            # Handle direct text input that doesn't start with /
+            else:
+                # Start collecting text
+                text_lines = [line]
+
+                # Continue reading until /EOT is found
+                eot_found = False
+                count = 1
+                while not eot_found:
+                  if count > MAX_LEN:
+                    print("Error: Too many lines entered, stopping input collection.")
+                    eot_found = True
+                  else:
+                    count += 1
+                    line = sys.stdin.readline().rstrip('\n')
+                    if line == '/EOT':
+                        eot_found = True
+                    else:
+                        text_lines.append(line)
+
+                # Process the collected text
+                text = '\n'.join(text_lines)
+                await play_text(kokoro, text, current_voice, current_speed, current_lang)
+
+        except KeyboardInterrupt:
+            print("\nInterrupted. Use /q to quit.")
+        except Exception as e:
+            print(f"Error: {e}")
 
 
 if __name__ == "__main__":
