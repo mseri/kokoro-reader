@@ -6,6 +6,7 @@
 #   "sounddevice",
 #   "requests",
 #   "tqdm",
+#   "prompt_toolkit",
 # ]
 # ///
 """
@@ -29,6 +30,8 @@ import argparse
 import requests
 from pathlib import Path
 from tqdm import tqdm
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import InMemoryHistory
 
 import sounddevice as sd
 
@@ -160,17 +163,20 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
     print("  /l LANG       - Change language (current: {})".format(lang))
     print("  /s SPEED      - Change speed (current: {})".format(speed))
     print("  /q            - Quit")
-
+    print("\nUse up/down arrows to navigate history, and left/right arrows to edit input")
+    
     current_voice = voice
     current_speed = speed
     current_lang = lang
+    
+    # Initialize prompt session with in-memory history
+    session = PromptSession(history=InMemoryHistory())
 
     # Main interaction loop
     while True:
         try:
-            print("\n> ", end="", flush=True)
-            line = sys.stdin.readline().strip()
-
+            line = await session.prompt_async("\n> ")
+            
             # Handle empty input
             if not line:
                 continue
@@ -240,7 +246,7 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
                     eot_found = True
                   else:
                     count += 1
-                    line = sys.stdin.readline().rstrip('\n')
+                    line = await session.prompt_async("")
                     if line == '/EOT':
                         eot_found = True
                     else:
@@ -254,6 +260,9 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
             print("\nInterrupted. Use /q to quit.")
         except Exception as e:
             print(f"Error: {e}")
+
+
+
 
 
 if __name__ == "__main__":
