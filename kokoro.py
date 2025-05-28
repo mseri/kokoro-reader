@@ -246,16 +246,44 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
                             "en-gb": "British English",
                             "it": "Italian"
                         }
+                        
+                        # Define grade order for sorting (highest to lowest)
+                        grade_order = {
+                            'A+': 0, 'A': 1, 'A-': 2, 
+                            'B+': 3, 'B': 4, 'B-': 5, 
+                            'C+': 6, 'C': 7, 'C-': 8
+                        }
+                        
+                        # Function to sort voices by grade
+                        def sort_by_grade(voice_item):
+                            voice_name, voice_info = voice_item
+                            return grade_order.get(voice_info["grade"], 999)  # Default high value for unknown grades
 
                         for lang_code, lang_name in languages.items():
                             # Get voices for this language
                             lang_voices = {name: info for name, info in VOICE_INFO.items()
-                                           if info["lang"] == lang_code}
+                                          if info["lang"] == lang_code}
 
                             if lang_voices:
                                 print(f"\n{lang_name}:")
-                                for voice_name, info in sorted(lang_voices.items()):
-                                    print(f"  {voice_name.ljust(13)} {info['lang'].ljust(10)} {info['grade']}")
+                                
+                                # Separate female and male voices
+                                female_voices = {name: info for name, info in lang_voices.items() 
+                                               if name.startswith(('af_', 'bf_', 'if_'))}
+                                male_voices = {name: info for name, info in lang_voices.items() 
+                                             if name.startswith(('am_', 'bm_', 'im_'))}
+                                
+                                # Display female voices sorted by grade
+                                if female_voices:
+                                    print("  Female voices:")
+                                    for voice_name, info in sorted(female_voices.items(), key=sort_by_grade):
+                                        print(f"    {voice_name.ljust(13)} {info['lang'].ljust(10)} {info['grade']}")
+                                
+                                # Display male voices sorted by grade
+                                if male_voices:
+                                    print("  Male voices:")
+                                    for voice_name, info in sorted(male_voices.items(), key=sort_by_grade):
+                                        print(f"    {voice_name.ljust(13)} {info['lang'].ljust(10)} {info['grade']}")
                     elif not arg:
                         print("Error: Missing voice parameter")
                         continue
