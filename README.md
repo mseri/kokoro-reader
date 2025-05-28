@@ -92,7 +92,7 @@ In interactive mode, you can:
 
 You can view all available high-quality voices by using the `/v?` command in interactive mode. The list includes American English, British English, and Italian voices.
 
-For other languages read <https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md>
+For additional languages and voice options, see the official documentation: <https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md>
 
 ### Voice Quality Grades
 
@@ -105,7 +105,7 @@ Voice names follow a specific naming convention:
 - Second letter: gender (f=female, m=male)
 - Followed by underscore and a name (e.g., af_bella = American Female Bella)
 
-See also <https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md>
+For complete voice listings and documentation, see <https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md>
 
 ## Dependencies
 
@@ -118,5 +118,6 @@ See also <https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md>
 
 ## Credits
 
-- [Kokoro Speech Synthesis](https://github.com/thewh1teagle/kokoro-onnx)
-- Voice data from [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M)
+- [Kokoro Speech Synthesis Engine](https://github.com/thewh1teagle/kokoro-onnx) - The underlying TTS library
+- [Kokoro-82M Model](https://huggingface.co/hexgrad/Kokoro-82M) - Source of voice data and voice quality information
+- This project was developed with assistance from Claude 3.7 Sonnet (via Copilot) using the Zed Editor's Agentic feature
