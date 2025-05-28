@@ -52,11 +52,11 @@ VOICE_INFO = {
     "af_heart": {"lang": "en-us", "grade": "A"},
     "af_bella": {"lang": "en-us", "grade": "A-"},
     "af_nicole": {"lang": "en-us", "grade": "B-"},
+    "af_alloy": {"lang": "en-us", "grade": "C"},
+    "af_nova": {"lang": "en-us", "grade": "C"},
     "af_aoede": {"lang": "en-us", "grade": "C+"},
     "af_kore": {"lang": "en-us", "grade": "C+"},
     "af_sarah": {"lang": "en-us", "grade": "C+"},
-    "af_alloy": {"lang": "en-us", "grade": "C"},
-    "af_nova": {"lang": "en-us", "grade": "C"},
     "af_sky": {"lang": "en-us", "grade": "C-"},
     "am_fenrir": {"lang": "en-us", "grade": "C+"},
     "am_michael": {"lang": "en-us", "grade": "C+"},
@@ -187,7 +187,7 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
     print("  TEXT          - Enter text directly (cannot start with '/', must end with /EOT)")
     print("  /f PATH       - Read text from file")
     print("  /v VOICE      - Change voice (current: {})".format(voice))
-    print("  /v?           - Show available voices with grade C or better")
+    print("  /v ?          - Show available voices with grade C or better")
     print("  /l LANG       - Change language (current: {})".format(lang))
     print("  /s SPEED      - Change speed (current: {})".format(speed))
     print("  /q            - Quit")
