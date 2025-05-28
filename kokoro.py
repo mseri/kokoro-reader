@@ -18,7 +18,7 @@ Usage:
 3.
     Run
     uv run kokoro.py
-    
+
     (Required model files will be automatically downloaded to ~/.cache/kokoro-reader on first run)
 
 For other languages read https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
@@ -46,37 +46,64 @@ CACHE_DIR = Path.home() / ".cache" / "kokoro-reader"
 MODEL_PATH = CACHE_DIR / "kokoro-v1.0.onnx"
 VOICES_PATH = CACHE_DIR / "voices-v1.0.bin"
 
+# Voice information (name, language, grade)
+VOICE_INFO = {
+    # American English
+    "af_heart": {"lang": "en-us", "grade": "A"},
+    "af_alloy": {"lang": "en-us", "grade": "C"},
+    "af_aoede": {"lang": "en-us", "grade": "C+"},
+    "af_bella": {"lang": "en-us", "grade": "A-"},
+    "af_kore": {"lang": "en-us", "grade": "C+"},
+    "af_nicole": {"lang": "en-us", "grade": "B-"},
+    "af_nova": {"lang": "en-us", "grade": "C"},
+    "af_sarah": {"lang": "en-us", "grade": "C+"},
+    "af_sky": {"lang": "en-us", "grade": "C-"},
+    "am_fenrir": {"lang": "en-us", "grade": "C+"},
+    "am_michael": {"lang": "en-us", "grade": "C+"},
+    "am_puck": {"lang": "en-us", "grade": "C+"},
+
+    # British English
+    "bf_emma": {"lang": "en-gb", "grade": "B-"},
+    "bf_isabella": {"lang": "en-gb", "grade": "C"},
+    "bm_fable": {"lang": "en-gb", "grade": "C"},
+    "bm_george": {"lang": "en-gb", "grade": "C"},
+
+    # Italian
+    "if_sara": {"lang": "it", "grade": "C"},
+    "im_nicola": {"lang": "it", "grade": "C"}
+}
+
 def ensure_model_files():
     """Download model files if they don't exist in the cache directory"""
     # Create cache directory if it doesn't exist
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     # Download model file if needed
     if not MODEL_PATH.exists():
         print(f"Downloading model file to {MODEL_PATH}...")
         download_file(MODEL_URL, MODEL_PATH)
-    
+
     # Download voices file if needed
     if not VOICES_PATH.exists():
         print(f"Downloading voices file to {VOICES_PATH}...")
         download_file(VOICES_URL, VOICES_PATH)
-    
+
     return str(MODEL_PATH), str(VOICES_PATH)
 
 def download_file(url, destination_path):
     """Download a file from the given URL to the destination path"""
     response = requests.get(url, stream=True)
     response.raise_for_status()
-    
+
     total_size = int(response.headers.get('content-length', 0))
     block_size = 1024  # 1 Kibibyte
-    
+
     if total_size == 0:
         raise ValueError(f"Failed to download file: Content-Length is 0 for {url}")
-    
+
     with open(destination_path, 'wb') as file:
         desc = f"Downloading {destination_path.name}"
-        with tqdm(total=total_size, unit='B', unit_scale=True, 
+        with tqdm(total=total_size, unit='B', unit_scale=True,
                  desc=desc, ncols=80) as pbar:
             for data in response.iter_content(block_size):
                 file.write(data)
@@ -94,7 +121,7 @@ async def main():
 
     # Download models if needed and get their paths
     model_path, voices_path = ensure_model_files()
-    
+
     # Initialize Kokoro
     print("Loading Kokoro model...")
     kokoro = Kokoro(model_path, voices_path)
@@ -160,15 +187,16 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
     print("  TEXT          - Enter text directly (cannot start with '/', must end with /EOT)")
     print("  /f PATH       - Read text from file")
     print("  /v VOICE      - Change voice (current: {})".format(voice))
+    print("  /v?           - Show available voices with grade C or better")
     print("  /l LANG       - Change language (current: {})".format(lang))
     print("  /s SPEED      - Change speed (current: {})".format(speed))
     print("  /q            - Quit")
     print("\nUse up/down arrows to navigate history, and left/right arrows to edit input")
-    
+
     current_voice = voice
     current_speed = speed
     current_lang = lang
-    
+
     # Initialize prompt session with in-memory history
     session = PromptSession(history=InMemoryHistory())
 
@@ -176,7 +204,7 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
     while True:
         try:
             line = await session.prompt_async("\n> ")
-            
+
             # Handle empty input
             if not line:
                 continue
@@ -206,11 +234,39 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
                         print(f"Error reading file: {e}")
 
                 elif cmd == '/v':
-                    if not arg:
+                    if arg == '?':
+                        # Display list of voices with grade C or better
+                        print("\nAvailable voices (grade C or better):")
+                        print("Voice Name".ljust(15) + "Language".ljust(10) + "Grade")
+                        print("-" * 30)
+
+                        # Group by language for better organization
+                        languages = {
+                            "en-us": "American English",
+                            "en-gb": "British English",
+                            "it": "Italian"
+                        }
+
+                        for lang_code, lang_name in languages.items():
+                            # Get voices for this language
+                            lang_voices = {name: info for name, info in VOICE_INFO.items()
+                                           if info["lang"] == lang_code}
+
+                            if lang_voices:
+                                print(f"\n{lang_name}:")
+                                for voice_name, info in sorted(lang_voices.items()):
+                                    print(f"  {voice_name.ljust(13)} {info['lang'].ljust(10)} {info['grade']}")
+                    elif not arg:
                         print("Error: Missing voice parameter")
                         continue
-                    current_voice = arg
-                    print(f"Voice changed to: {current_voice}")
+                    else:
+                        current_voice = arg
+                        # Show language information if available
+                        if current_voice in VOICE_INFO:
+                            info = VOICE_INFO[current_voice]
+                            print(f"Voice changed to: {current_voice} ({info['lang']}, grade: {info['grade']})")
+                        else:
+                            print(f"Voice changed to: {current_voice}")
 
                 elif cmd == '/l':
                     if not arg:
