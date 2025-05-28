@@ -68,16 +68,16 @@ def download_file(url, destination_path):
     total_size = int(response.headers.get('content-length', 0))
     block_size = 1024  # 1 Kibibyte
     
+    if total_size == 0:
+        raise ValueError(f"Failed to download file: Content-Length is 0 for {url}")
+    
     with open(destination_path, 'wb') as file:
-        if total_size == 0:
-            file.write(response.content)
-        else:
-            desc = f"Downloading {destination_path.name}"
-            with tqdm(total=total_size, unit='B', unit_scale=True, 
-                     desc=desc, ncols=80) as pbar:
-                for data in response.iter_content(block_size):
-                    file.write(data)
-                    pbar.update(len(data))
+        desc = f"Downloading {destination_path.name}"
+        with tqdm(total=total_size, unit='B', unit_scale=True, 
+                 desc=desc, ncols=80) as pbar:
+            for data in response.iter_content(block_size):
+                file.write(data)
+                pbar.update(len(data))
 
 async def main():
     parser = argparse.ArgumentParser(description='Text-to-speech using Kokoro')
