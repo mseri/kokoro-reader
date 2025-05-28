@@ -50,13 +50,13 @@ VOICES_PATH = CACHE_DIR / "voices-v1.0.bin"
 VOICE_INFO = {
     # American English
     "af_heart": {"lang": "en-us", "grade": "A"},
-    "af_alloy": {"lang": "en-us", "grade": "C"},
-    "af_aoede": {"lang": "en-us", "grade": "C+"},
     "af_bella": {"lang": "en-us", "grade": "A-"},
-    "af_kore": {"lang": "en-us", "grade": "C+"},
     "af_nicole": {"lang": "en-us", "grade": "B-"},
-    "af_nova": {"lang": "en-us", "grade": "C"},
+    "af_aoede": {"lang": "en-us", "grade": "C+"},
+    "af_kore": {"lang": "en-us", "grade": "C+"},
     "af_sarah": {"lang": "en-us", "grade": "C+"},
+    "af_alloy": {"lang": "en-us", "grade": "C"},
+    "af_nova": {"lang": "en-us", "grade": "C"},
     "af_sky": {"lang": "en-us", "grade": "C-"},
     "am_fenrir": {"lang": "en-us", "grade": "C+"},
     "am_michael": {"lang": "en-us", "grade": "C+"},
@@ -316,8 +316,6 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
             print("\nInterrupted. Use /q to quit.")
         except Exception as e:
             print(f"Error: {e}")
-
-
 
 
 
