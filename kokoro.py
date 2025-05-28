@@ -4,6 +4,7 @@
 # dependencies = [
 #   "kokoro-onnx",
 #   "sounddevice",
+#   "requests",
 # ]
 # ///
 """
@@ -13,11 +14,10 @@ Usage:
 2.
     Copy this file to new folder
 3.
-    Download these files
-    https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
-    https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
-4. Run
+    Run
     uv run kokoro.py
+    
+    (Required model files will be automatically downloaded to ~/.cache/kokoro-reader on first run)
 
 For other languages read https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
 """
@@ -25,12 +25,59 @@ For other languages read https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOI
 import asyncio
 import sys
 import argparse
+import requests
+from pathlib import Path
 
 import sounddevice as sd
 
 from kokoro_onnx import Kokoro
 
 MAX_LEN = 1024  # Maximum number of lines to read in interactive mode
+
+# Model URLs and cache location
+MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
+VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+CACHE_DIR = Path.home() / ".cache" / "kokoro-reader"
+MODEL_PATH = CACHE_DIR / "kokoro-v1.0.onnx"
+VOICES_PATH = CACHE_DIR / "voices-v1.0.bin"
+
+def ensure_model_files():
+    """Download model files if they don't exist in the cache directory"""
+    # Create cache directory if it doesn't exist
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Download model file if needed
+    if not MODEL_PATH.exists():
+        print(f"Downloading model file to {MODEL_PATH}...")
+        download_file(MODEL_URL, MODEL_PATH)
+    
+    # Download voices file if needed
+    if not VOICES_PATH.exists():
+        print(f"Downloading voices file to {VOICES_PATH}...")
+        download_file(VOICES_URL, VOICES_PATH)
+    
+    return str(MODEL_PATH), str(VOICES_PATH)
+
+def download_file(url, destination_path):
+    """Download a file from the given URL to the destination path"""
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+    
+    total_size = int(response.headers.get('content-length', 0))
+    block_size = 1024  # 1 Kibibyte
+    
+    with open(destination_path, 'wb') as file:
+        if total_size == 0:
+            file.write(response.content)
+        else:
+            downloaded = 0
+            for data in response.iter_content(block_size):
+                downloaded += len(data)
+                file.write(data)
+                done = int(50 * downloaded / total_size)
+                sys.stdout.write(f"\r[{'=' * done}{' ' * (50 - done)}] {downloaded}/{total_size} bytes")
+                sys.stdout.flush()
+            sys.stdout.write('\n')
 
 async def main():
     parser = argparse.ArgumentParser(description='Text-to-speech using Kokoro')
@@ -42,9 +89,12 @@ async def main():
 
     args = parser.parse_args()
 
+    # Download models if needed and get their paths
+    model_path, voices_path = ensure_model_files()
+    
     # Initialize Kokoro
     print("Loading Kokoro model...")
-    kokoro = Kokoro("kokoro-v1.0.onnx", "voices-v1.0.bin")
+    kokoro = Kokoro(model_path, voices_path)
 
     if args.interactive:
         await run_interactive_mode(kokoro, args.voice, args.speed, args.lang)
