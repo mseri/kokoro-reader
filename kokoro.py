@@ -5,6 +5,7 @@
 #   "kokoro-onnx",
 #   "sounddevice",
 #   "requests",
+#   "tqdm",
 # ]
 # ///
 """
@@ -27,6 +28,7 @@ import sys
 import argparse
 import requests
 from pathlib import Path
+from tqdm import tqdm
 
 import sounddevice as sd
 
@@ -70,14 +72,12 @@ def download_file(url, destination_path):
         if total_size == 0:
             file.write(response.content)
         else:
-            downloaded = 0
-            for data in response.iter_content(block_size):
-                downloaded += len(data)
-                file.write(data)
-                done = int(50 * downloaded / total_size)
-                sys.stdout.write(f"\r[{'=' * done}{' ' * (50 - done)}] {downloaded}/{total_size} bytes")
-                sys.stdout.flush()
-            sys.stdout.write('\n')
+            desc = f"Downloading {destination_path.name}"
+            with tqdm(total=total_size, unit='B', unit_scale=True, 
+                     desc=desc, ncols=80) as pbar:
+                for data in response.iter_content(block_size):
+                    file.write(data)
+                    pbar.update(len(data))
 
 async def main():
     parser = argparse.ArgumentParser(description='Text-to-speech using Kokoro')
