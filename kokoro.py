@@ -7,6 +7,7 @@
 #   "requests",
 #   "tqdm",
 #   "prompt_toolkit",
+#   "trafilatura",
 # ]
 # ///
 """
@@ -22,6 +23,10 @@ Usage:
     (Required model files will be automatically downloaded to ~/.cache/kokoro-reader on first run)
 
 For other languages read https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
+
+Input options (if not provided, reads from stdin):
+- Read text from a file: -f FILE or --file FILE
+- Read text from a URL: -u URL or --url URL
 """
 
 import asyncio
@@ -34,6 +39,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 
 import sounddevice as sd
+from trafilatura import fetch_url, extract
 
 from kokoro_onnx import Kokoro
 
@@ -111,9 +117,12 @@ def download_file(url, destination_path):
 
 async def main():
     parser = argparse.ArgumentParser(description='Text-to-speech using Kokoro')
-    parser.add_argument('-f', '--file', help='Input text file (if not provided, reads from stdin)')
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument('-f', '--file', help='Input text file')
+    input_group.add_argument('-u', '--url', help='URL to extract text from')
+    parser.epilog = 'Note: If neither -f/--file nor -u/--url is provided, text is read from standard input (stdin).'
     parser.add_argument('-v', '--voice', default='af_bella', help='Voice to use (default: af_bella)')
-    parser.add_argument('-s', '--speed', type=float, default=1.0, help='Speech speed (default: 1.0)')
+    parser.add_argument('-s', '--speed', type=float, default=0.8, help='Speech speed (default: 0.8)')
     parser.add_argument('-l', '--lang', default='en-us', help='Language (default: en-us)')
     parser.add_argument('-i', '--interactive', action='store_true', help='Run in interactive mode')
 
@@ -129,7 +138,7 @@ async def main():
     if args.interactive:
         await run_interactive_mode(kokoro, args.voice, args.speed, args.lang)
     else:
-        # Read text from file or stdin
+        # Read text from file, URL, or stdin
         try:
             if args.file:
                 # Read from file
@@ -141,6 +150,24 @@ async def main():
                     sys.exit(1)
                 except Exception as e:
                     print(f"Error reading file: {e}", file=sys.stderr)
+                    sys.exit(1)
+            elif args.url:
+                # Extract text from URL
+                try:
+                    print(f"Fetching content from URL: {args.url}")
+                    downloaded = fetch_url(args.url)
+                    if downloaded is None:
+                        print(f"Error: Could not fetch URL '{args.url}'", file=sys.stderr)
+                        sys.exit(1)
+
+                    text = extract(downloaded)
+                    if not text:
+                        print(f"Error: Could not extract text from URL '{args.url}'", file=sys.stderr)
+                        sys.exit(1)
+
+                    print(f"Successfully extracted {len(text)} characters from URL")
+                except Exception as e:
+                    print(f"Error extracting text from URL: {e}", file=sys.stderr)
                     sys.exit(1)
             else:
                 # Read from stdin
@@ -186,6 +213,7 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
     print("Available commands:")
     print("  TEXT          - Enter text directly (cannot start with '/', must end with /EOT)")
     print("  /f PATH       - Read text from file")
+    print("  /u URL        - Read text from URL")
     print("  /v VOICE      - Change voice (current: {})".format(voice))
     print("  /v ?          - Show available voices with grade C or better")
     print("  /l LANG       - Change language (current: {})".format(lang))
@@ -233,6 +261,28 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
                     except Exception as e:
                         print(f"Error reading file: {e}")
 
+                elif cmd == '/u':
+                    if not arg:
+                        print("Error: Missing URL")
+                        continue
+
+                    try:
+                        print(f"Fetching content from URL: {arg}")
+                        downloaded = fetch_url(arg)
+                        if downloaded is None:
+                            print(f"Error: Could not fetch URL '{arg}'")
+                            continue
+
+                        text = extract(downloaded)
+                        if not text:
+                            print(f"Error: Could not extract text from URL '{arg}'")
+                            continue
+
+                        print(f"Successfully extracted {len(text)} characters from URL")
+                        await play_text(kokoro, text, current_voice, current_speed, current_lang)
+                    except Exception as e:
+                        print(f"Error extracting text from URL: {e}")
+
                 elif cmd == '/v':
                     if arg == '?':
                         # Display list of voices with grade C or better
@@ -246,14 +296,14 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
                             "en-gb": "British English",
                             "it": "Italian"
                         }
-                        
+
                         # Define grade order for sorting (highest to lowest)
                         grade_order = {
-                            'A+': 0, 'A': 1, 'A-': 2, 
-                            'B+': 3, 'B': 4, 'B-': 5, 
+                            'A+': 0, 'A': 1, 'A-': 2,
+                            'B+': 3, 'B': 4, 'B-': 5,
                             'C+': 6, 'C': 7, 'C-': 8
                         }
-                        
+
                         # Function to sort voices by grade
                         def sort_by_grade(voice_item):
                             voice_name, voice_info = voice_item
@@ -266,19 +316,19 @@ async def run_interactive_mode(kokoro, voice, speed, lang):
 
                             if lang_voices:
                                 print(f"\n{lang_name}:")
-                                
+
                                 # Separate female and male voices
-                                female_voices = {name: info for name, info in lang_voices.items() 
+                                female_voices = {name: info for name, info in lang_voices.items()
                                                if name.startswith(('af_', 'bf_', 'if_'))}
-                                male_voices = {name: info for name, info in lang_voices.items() 
+                                male_voices = {name: info for name, info in lang_voices.items()
                                              if name.startswith(('am_', 'bm_', 'im_'))}
-                                
+
                                 # Display female voices sorted by grade
                                 if female_voices:
                                     print("  Female voices:")
                                     for voice_name, info in sorted(female_voices.items(), key=sort_by_grade):
                                         print(f"    {voice_name.ljust(13)} {info['lang'].ljust(10)} {info['grade']}")
-                                
+
                                 # Display male voices sorted by grade
                                 if male_voices:
                                     print("  Male voices:")
