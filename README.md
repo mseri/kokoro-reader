@@ -2,6 +2,8 @@
 
 A simple text-to-speech CLI tool using the Kokoro speech synthesis engine.
 
+> **Note**: This repository also includes an experimental version (`chatterbox-reader.py`) that uses the [streaming version of Chatterbox](https://github.com/davidbrowne17/chatterbox-streaming). However, this version is currently very slow and not suitable for practical use at the moment.
+
 ## Features
 
 - High-quality text-to-speech synthesis
@@ -150,9 +152,30 @@ For complete voice listings and documentation, see <https://huggingface.co/hexgr
 - prompt_toolkit - Interactive shell interface
 - trafilatura - Web content extraction for URL reading
 
+## Alternative Implementations
+
+### Experimental Chatterbox Version
+
+The repository includes `chatterbox-reader.py`, which is an experimental implementation using the streaming version of Chatterbox (https://github.com/davidbrowne17/chatterbox-streaming). This version offers:
+
+- Different voice generation approach based on Chatterbox-streaming
+- Emotion exaggeration controls
+- Similar interface to the main Kokoro reader
+
+However, be aware that:
+- It is significantly slower than the main Kokoro implementation
+- Currently not suitable for practical daily use
+- Limited voice options (no voice selection parameter)
+
+To try the experimental version:
+```bash
+uv run chatterbox-reader.py [options]
+```
+
 ## Credits
 
 - [Kokoro Speech Synthesis Engine](https://github.com/thewh1teagle/kokoro-onnx) - The underlying TTS library
 - [Kokoro-82M Model](https://huggingface.co/hexgrad/Kokoro-82M) - Source of voice data and voice quality information
+- [Chatterbox Streaming](https://github.com/davidbrowne17/chatterbox-streaming) - Used in the experimental version
 - [Trafilatura](https://github.com/adbar/trafilatura) - Used for extracting readable content from web pages
 - This project was developed with assistance from Claude 3.7 Sonnet (via Copilot) using the Zed Editor's Agentic feature
