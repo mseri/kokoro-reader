@@ -26,7 +26,7 @@ cd kokoro-reader
 ### Basic Usage
 
 ```bash
-uv run kokoro.py [options]
+uv run kokoro-reader.py [options]
 ```
 
 The required model files will be automatically downloaded to `~/.cache/kokoro-reader` on first run.
@@ -48,34 +48,34 @@ Note: If neither `-f/--file` nor `-u/--url` is provided, text is read from stand
 
 Read text from a file:
 ```bash
-uv run kokoro.py -f mytext.txt
+uv run kokoro-reader.py -f mytext.txt
 ```
 
 Read text from a URL (extracts main content from web pages):
 ```bash
-uv run kokoro.py -u https://example.com/article
+uv run kokoro-reader.py -u https://example.com/article
 ```
 
 Use a specific voice:
 ```bash
-uv run kokoro.py -v bf_emma -f mytext.txt
+uv run kokoro-reader.py -v bf_emma -f mytext.txt
 ```
 
 Adjust speech speed:
 ```bash
-uv run kokoro.py -s 1.2 -f mytext.txt
+uv run kokoro-reader.py -s 1.2 -f mytext.txt
 ```
 
 Read from stdin:
 ```bash
-echo "Hello, world!" | uv run kokoro.py
+echo "Hello, world!" | uv run kokoro-reader.py
 ```
 
 ### Interactive Mode
 
 Run in interactive mode:
 ```bash
-uv run kokoro.py -i
+uv run kokoro-reader.py -i
 ```
 
 In interactive mode, you can:
