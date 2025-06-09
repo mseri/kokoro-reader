@@ -261,6 +261,13 @@ def main():
     parser.add_argument('-i', '--interactive', action='store_true', help='Run in interactive mode')
 
     args = parser.parse_args()
+    
+    # Validate the selected voice
+    if not voice_manager.validate_voice(args.voice):
+        print(f"Error: Voice '{args.voice}' not found.")
+        print("\nAvailable voices:")
+        print(voice_manager.display_available_voices())
+        sys.exit(1)
 
     # Download models if needed and get their paths
     model_path, voices_path = ensure_model_files()
@@ -388,9 +395,12 @@ async def run_interactive_mode(kokoro, voice, speed, lang, voice_manager):
                         print("Error: Missing voice parameter")
                         continue
                     else:
-                        current_voice = arg
-                        # Show language information if available
-                        print(f"Voice changed to: {voice_manager.display_voice_info(current_voice)}")
+                        if voice_manager.validate_voice(arg):
+                            current_voice = arg
+                            # Show language information if available
+                            print(f"Voice changed to: {voice_manager.display_voice_info(current_voice)}")
+                        else:
+                            print(f"Error: Voice '{arg}' not found. Use '/v ?' to see available voices.")
 
                 elif cmd == '/l':
                     if not arg:
