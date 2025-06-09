@@ -17,7 +17,7 @@ Usage:
     Copy this file to new folder
 3.
     Run
-    uv run kokoro.py
+    uv run chatterbox-reader.py
 
     (Required model files will be automatically downloaded to ~/.cache/kokoro-reader on first run)
 
