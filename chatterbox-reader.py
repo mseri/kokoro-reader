@@ -10,22 +10,16 @@
 # ]
 # ///
 """
-Usage:
-1.
-    Install uv from https://docs.astral.sh/uv/getting-started/installation
-2.
-    Copy this file to new folder
-3.
-    Run
-    uv run chatterbox-reader.py
+Chatterbox Reader - Experimental text-to-speech CLI using Chatterbox streaming
 
-    (Required model files will be automatically downloaded to ~/.cache/kokoro-reader on first run)
+This is an experimental implementation that uses the Chatterbox streaming TTS library.
+NOTE: Currently slow and not suitable for regular use.
 
-For other languages read https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
-
-Input options (if not provided, reads from stdin):
-- Read text from a file: -f FILE or --file FILE
-- Read text from a URL: -u URL or --url URL
+Usage Examples:
+  uv run chatterbox-reader.py -f mytext.txt             # Read from file
+  uv run chatterbox-reader.py -u https://example.com    # Read from URL
+  echo "Hello world" | uv run chatterbox-reader.py      # Read from stdin
+  uv run chatterbox-reader.py -i                        # Interactive mode
 """
 
 import sys
@@ -44,7 +38,15 @@ from chatterbox.tts import ChatterboxTTS
 MAX_LEN = 1024  # Maximum number of lines to read in interactive mode
 
 def read_from_file(file_path, exit_on_error=True):
-    """Read text from a file and handle errors"""
+    """Read text from a file with robust error handling.
+
+    Args:
+        file_path: Path to the text file
+        exit_on_error: If True, exit the program on error; otherwise return None
+
+    Returns:
+        String containing the file contents or None on error
+    """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             text = f.read()
@@ -67,7 +69,18 @@ def read_from_file(file_path, exit_on_error=True):
             return None
 
 def extract_text_from_url(url, exit_on_error=True):
-    """Extract text from a URL and handle errors"""
+    """Extract readable text content from a URL.
+
+    Uses trafilatura to extract the main content from a web page,
+    filtering out navigation, ads, and other non-content elements.
+
+    Args:
+        url: The URL to fetch and extract content from
+        exit_on_error: If True, exit the program on error; otherwise return None
+
+    Returns:
+        String containing the extracted text or None on error
+    """
     try:
         print(f"Fetching content from URL: {url}")
         downloaded = fetch_url(url)
@@ -102,7 +115,7 @@ def extract_text_from_url(url, exit_on_error=True):
             return None
 
 def main():
-    parser = argparse.ArgumentParser(description='Text-to-speech using Kokoro')
+    parser = argparse.ArgumentParser(description='Text-to-speech using Chatterbox streaming')
     input_group = parser.add_mutually_exclusive_group()
     input_group.add_argument('-f', '--file', help='Input text file')
     input_group.add_argument('-u', '--url', help='URL to extract text from')
@@ -113,7 +126,8 @@ def main():
 
     args = parser.parse_args()
 
-    # Detect device (Mac with M1/M2/M3/M4)
+    # Use MPS acceleration on Apple Silicon if available, otherwise fall back to CPU
+    # the patch torch.load to use the correct device comes from chatterbox' repo
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     map_location = torch.device(device)
 
@@ -133,16 +147,12 @@ def main():
         # Read text from file, URL, or stdin
         try:
             if args.file:
-                # Read from file
                 text = read_from_file(args.file)
             elif args.url:
-                # Extract text from URL
                 text = extract_text_from_url(args.url)
             else:
-                # Read from stdin
                 text = sys.stdin.read()
 
-            # Check if we got any text to process
             if not text or not text.strip():
                 print("Error: No text provided for processing", file=sys.stderr)
                 sys.exit(1)
@@ -154,12 +164,18 @@ def main():
         asyncio.run(play_text(model, text, args.exaggeration, args.speed))
 
 async def play_text(model, text, exaggeration, cfg_weight):
-    """Process text with Kokoro and play audio"""
+    """Convert text to speech using Chatterbox streaming and play audio.
+
+    Args:
+        model: Initialized Chatterbox TTS engine
+        text: Text to convert to speech
+        exaggeration: Emotion exaggeration factor (higher = more dramatic)
+        cfg_weight: Speed control factor (higher = faster)
+    """
     if not text.strip():
         print("Error: No text provided")
         return
 
-    # Basic streaming
     stream = model.generate_stream(text, exaggeration=exaggeration, cfg_weight=cfg_weight)
 
     count = 0
@@ -174,7 +190,16 @@ async def play_text(model, text, exaggeration, cfg_weight):
 
 
 async def run_interactive_mode(model, exaggeration, cfg_weight):
-    """Run in interactive mode where the model is loaded once and reused"""
+    """Run the application in interactive mode with persistent model and command history.
+
+    Provides a command-line interface where users can enter text, adjust emotion
+    and speed settings, and read from files or URLs without reloading the model.
+
+    Args:
+        model: Initialized Chatterbox TTS engine
+        exaggeration: Initial emotion exaggeration factor
+        cfg_weight: Initial speed control factor
+    """
     print("\n=== Kokoro Interactive Mode ===")
     print("Available commands:")
     print("  TEXT            - Enter text directly (cannot start with '/', must end with /EOT)")
@@ -188,10 +213,8 @@ async def run_interactive_mode(model, exaggeration, cfg_weight):
     current_exaggeration = exaggeration
     current_speed = cfg_weight
 
-    # Initialize prompt session with in-memory history
     session = PromptSession(history=InMemoryHistory())
 
-    # Main interaction loop
     while True:
         try:
             line = await session.prompt_async("\n> ")
@@ -254,10 +277,8 @@ async def run_interactive_mode(model, exaggeration, cfg_weight):
 
             # Handle direct text input that doesn't start with /
             else:
-                # Start collecting text
                 text_lines = [line]
 
-                # Continue reading until /EOT is found
                 eot_found = False
                 count = 1
                 while not eot_found:
@@ -272,7 +293,6 @@ async def run_interactive_mode(model, exaggeration, cfg_weight):
                     else:
                         text_lines.append(line)
 
-                # Process the collected text
                 text = '\n'.join(text_lines)
                 await play_text(model, text, current_exaggeration, current_speed)
 
@@ -280,7 +300,6 @@ async def run_interactive_mode(model, exaggeration, cfg_weight):
             print("\nInterrupted. Use /q to quit.")
         except Exception as e:
             print(f"Error: {e}")
-
 
 
 if __name__ == "__main__":

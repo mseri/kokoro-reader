@@ -11,22 +11,16 @@
 # ]
 # ///
 """
-Usage:
-1.
-    Install uv from https://docs.astral.sh/uv/getting-started/installation
-2.
-    Copy this file to new folder
-3.
-    Run
-    uv run --script kokoro-reader.py
+Kokoro Reader - High-quality text-to-speech CLI tool using Kokoro speech synthesis
 
-    (Required model files will be automatically downloaded to ~/.cache/kokoro-reader on first run)
+Required models are automatically downloaded to ~/.cache/kokoro-reader on first run.
+For additional voices, see: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
 
-For other languages read https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
-
-Input options (if not provided, reads from stdin):
-- Read text from a file: -f FILE or --file FILE
-- Read text from a URL: -u URL or --url URL
+Usage Examples:
+  uv run kokoro-reader.py -f mytext.txt             # Read from file
+  uv run kokoro-reader.py -u https://example.com    # Read from URL
+  echo "Hello world" | uv run kokoro-reader.py      # Read from stdin
+  uv run kokoro-reader.py -i                        # Interactive mode
 """
 
 import sys
@@ -44,8 +38,6 @@ from trafilatura import fetch_url, extract
 from kokoro_onnx import Kokoro
 
 MAX_LEN = 1024  # Maximum number of lines to read in interactive mode
-
-# Model URLs and cache location
 MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
 VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
 CACHE_DIR = Path.home() / ".cache" / "kokoro-reader"
@@ -119,32 +111,27 @@ class Voices:
         result.append("Voice Name".ljust(15) + "Language".ljust(10) + "Grade")
         result.append("-" * 30)
 
-        # Function to sort voices by grade
         def sort_by_grade(voice_item):
             voice_name, voice_info = voice_item
             return self.grade_order[voice_info["grade"]]
 
         for lang_code, lang_name in self.languages.items():
-            # Get voices for this language
             lang_voices = {name: info for name, info in self.voices.items()
                           if info["lang"] == lang_code}
 
             if lang_voices:
                 result.append(f"\n{lang_name}:")
 
-                # Separate female and male voices
                 female_voices = {name: info for name, info in lang_voices.items()
                                if name.startswith(('af_', 'bf_', 'if_'))}
                 male_voices = {name: info for name, info in lang_voices.items()
                              if name.startswith(('am_', 'bm_', 'im_'))}
 
-                # Display female voices sorted by grade
                 if female_voices:
                     result.append("  Female voices:")
                     for voice_name, info in sorted(female_voices.items(), key=sort_by_grade):
                         result.append(f"    {voice_name.ljust(13)} {info['lang'].ljust(10)} {info['grade']}")
 
-                # Display male voices sorted by grade
                 if male_voices:
                     result.append("  Male voices:")
                     for voice_name, info in sorted(male_voices.items(), key=sort_by_grade):
@@ -154,15 +141,12 @@ class Voices:
 
 def ensure_model_files():
     """Download model files if they don't exist in the cache directory"""
-    # Create cache directory if it doesn't exist
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Download model file if needed
     if not MODEL_PATH.exists():
         print(f"Downloading model file to {MODEL_PATH}...")
         download_file(MODEL_URL, MODEL_PATH)
 
-    # Download voices file if needed
     if not VOICES_PATH.exists():
         print(f"Downloading voices file to {VOICES_PATH}...")
         download_file(VOICES_URL, VOICES_PATH)
@@ -175,7 +159,7 @@ def download_file(url, destination_path):
     response.raise_for_status()
 
     total_size = int(response.headers.get('content-length', 0))
-    block_size = 1024  # 1 Kibibyte
+    block_size = 1024
 
     if total_size == 0:
         raise ValueError(f"Failed to download file: Content-Length is 0 for {url}")
@@ -189,7 +173,15 @@ def download_file(url, destination_path):
                 pbar.update(len(data))
 
 def read_from_file(file_path, exit_on_error=True):
-    """Read text from a file and handle errors"""
+    """Read text from a file with robust error handling.
+
+    Args:
+        file_path: Path to the text file
+        exit_on_error: If True, exit the program on error; otherwise return None
+
+    Returns:
+        String containing the file contents or None on error
+    """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             text = f.read()
@@ -212,7 +204,18 @@ def read_from_file(file_path, exit_on_error=True):
             return None
 
 def extract_text_from_url(url, exit_on_error=True):
-    """Extract text from a URL and handle errors"""
+    """Extract readable text content from a URL.
+
+    Uses trafilatura to extract the main content from a web page,
+    filtering out navigation, ads, and other non-content elements.
+
+    Args:
+        url: The URL to fetch and extract content from
+        exit_on_error: If True, exit the program on error; otherwise return None
+
+    Returns:
+        String containing the extracted text or None on error
+    """
     try:
         print(f"Fetching content from URL: {url}")
         downloaded = fetch_url(url)
@@ -247,9 +250,8 @@ def extract_text_from_url(url, exit_on_error=True):
             return None
 
 def main():
-    # Initialize voice manager
     voice_manager = Voices()
-    
+
     parser = argparse.ArgumentParser(description='Text-to-speech using Kokoro')
     input_group = parser.add_mutually_exclusive_group()
     input_group.add_argument('-f', '--file', help='Input text file')
@@ -261,37 +263,29 @@ def main():
     parser.add_argument('-i', '--interactive', action='store_true', help='Run in interactive mode')
 
     args = parser.parse_args()
-    
-    # Validate the selected voice
+
     if not voice_manager.validate_voice(args.voice):
         print(f"Error: Voice '{args.voice}' not found.")
         print("\nAvailable voices:")
         print(voice_manager.display_available_voices())
         sys.exit(1)
 
-    # Download models if needed and get their paths
     model_path, voices_path = ensure_model_files()
 
-    # Initialize Kokoro
     print("Loading Kokoro model...")
     kokoro = Kokoro(model_path, voices_path)
 
     if args.interactive:
         asyncio.run(run_interactive_mode(kokoro, args.voice, args.speed, args.lang, voice_manager))
     else:
-        # Read text from file, URL, or stdin
         try:
             if args.file:
-                # Read from file
                 text = read_from_file(args.file)
             elif args.url:
-                # Extract text from URL
                 text = extract_text_from_url(args.url)
             else:
-                # Read from stdin
                 text = sys.stdin.read()
 
-            # Check if we got any text to process
             if not text or not text.strip():
                 print("Error: No text provided for processing", file=sys.stderr)
                 sys.exit(1)
@@ -304,7 +298,15 @@ def main():
 
 
 async def play_text(kokoro, text, voice, speed, lang):
-    """Process text with Kokoro and play audio"""
+    """Convert text to speech using Kokoro and play the resulting audio.
+
+    Args:
+        kokoro: Initialized Kokoro TTS engine
+        text: Text to convert to speech
+        voice: Voice ID to use for synthesis
+        speed: Speech rate multiplier (lower is slower)
+        lang: Language code for synthesis
+    """
     if not text.strip():
         print("Error: No text provided")
         return
@@ -327,7 +329,18 @@ async def play_text(kokoro, text, voice, speed, lang):
 
 
 async def run_interactive_mode(kokoro, voice, speed, lang, voice_manager):
-    """Run in interactive mode where the model is loaded once and reused"""
+    """Run the application in interactive mode with persistent model and command history.
+
+    Provides a command-line interface where users can enter text, change voices,
+    adjust speed settings, and read from files or URLs without reloading the model.
+
+    Args:
+        kokoro: Initialized Kokoro TTS engine
+        voice: Initial voice ID to use
+        speed: Initial speech rate
+        lang: Initial language code
+        voice_manager: Voice management object for validation and information
+    """
     print("\n=== Kokoro Interactive Mode ===")
     print("Available commands:")
     print("  TEXT          - Enter text directly (cannot start with '/', must end with /EOT)")
@@ -344,10 +357,8 @@ async def run_interactive_mode(kokoro, voice, speed, lang, voice_manager):
     current_speed = speed
     current_lang = lang
 
-    # Initialize prompt session with in-memory history
     session = PromptSession(history=InMemoryHistory())
 
-    # Main interaction loop
     while True:
         try:
             line = await session.prompt_async("\n> ")
@@ -424,10 +435,8 @@ async def run_interactive_mode(kokoro, voice, speed, lang, voice_manager):
 
             # Handle direct text input that doesn't start with /
             else:
-                # Start collecting text
                 text_lines = [line]
 
-                # Continue reading until /EOT is found
                 eot_found = False
                 count = 1
                 while not eot_found:
@@ -442,7 +451,6 @@ async def run_interactive_mode(kokoro, voice, speed, lang, voice_manager):
                     else:
                         text_lines.append(line)
 
-                # Process the collected text
                 text = '\n'.join(text_lines)
                 await play_text(kokoro, text, current_voice, current_speed, current_lang)
 
@@ -450,7 +458,6 @@ async def run_interactive_mode(kokoro, voice, speed, lang, voice_manager):
             print("\nInterrupted. Use /q to quit.")
         except Exception as e:
             print(f"Error: {e}")
-
 
 
 if __name__ == "__main__":
