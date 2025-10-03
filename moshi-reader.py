@@ -14,18 +14,27 @@
 # ]
 # ///
 """
-Moshi Reader - High-quality text-to-speech CLI tool using Moshi MLX speech synthesis
+Moshi Reader - High-quality text-to-speech CLI tool using Moshi MLX speech synthesis with real-time streaming
+
+Features:
+- Real-time audio streaming with low latency
+- Automatic text chunking for long documents
+- Configurable audio buffering for optimal performance
+- Interactive mode with persistent models
+- Support for multiple voice options
 
 Models are automatically downloaded from HuggingFace on first run.
 By default, models are quantized to 8 bits for faster inference and lower memory usage.
 
 Usage Examples:
-  uv run moshi-reader.py -f mytext.txt             # Read from file (8-bit quantized)
-  uv run moshi-reader.py -u https://example.com    # Read from URL
-  echo "Hello world" | uv run moshi-reader.py      # Read from stdin
-  uv run moshi-reader.py -i                        # Interactive mode
-  uv run moshi-reader.py --quantize 0 -f text.txt  # No quantization (full precision)
-  uv run moshi-reader.py --quantize 4 -f text.txt  # 4-bit quantization (more compressed)
+  uv run moshi-reader.py -f mytext.txt                    # Read from file with streaming
+  uv run moshi-reader.py -u https://example.com           # Read from URL with streaming
+  echo "Hello world" | uv run moshi-reader.py             # Read from stdin with streaming
+  uv run moshi-reader.py -i                               # Interactive mode
+  uv run moshi-reader.py --quantize 0 -f text.txt         # No quantization (full precision)
+  uv run moshi-reader.py --quantize 4 -f text.txt         # 4-bit quantization (more compressed)
+  uv run moshi-reader.py --buffer-size 20 -f text.txt     # Larger audio buffer for stability
+  uv run moshi-reader.py --chunk-size 500 -f text.txt     # Smaller chunks for faster response
 """
 
 import sys
@@ -35,6 +44,7 @@ import requests
 import json
 import queue
 import time
+import threading
 from pathlib import Path
 from tqdm import tqdm
 from prompt_toolkit import PromptSession
@@ -300,8 +310,8 @@ class MoshiTTS:
             cfg_coef_conditioning = self.tts_model.cfg_coef
             self.tts_model.cfg_coef = 1.0
 
-    def synthesize_and_play_streaming(self, text, voice="expresso/ex03-ex01_happy_001_channel1_334s.wav"):
-        """Synthesize text and stream audio in real-time"""
+    def synthesize_and_play_streaming(self, text, voice="expresso/ex03-ex01_happy_001_channel1_334s.wav", buffer_size=None):
+        """Synthesize text and stream audio in real-time with enhanced buffering"""
         if not text or not text.strip():
             print("Error: Empty text provided")
             return False
@@ -326,84 +336,154 @@ class MoshiTTS:
             print(f"Error setting up voice attributes: {e}")
             return False
 
-        wav_frames = queue.Queue()
+        # Enhanced audio buffer with size limit
+        buffer_size = buffer_size or getattr(self, 'buffer_size', 10)
+        wav_frames = queue.Queue(maxsize=buffer_size)
         frame_count = 0
+        synthesis_complete = threading.Event()
+        synthesis_error = threading.Event()
+        audio_buffer = np.array([], dtype=np.float32)
+        buffer_lock = threading.Lock()
 
         def _on_frame(frame):
             nonlocal frame_count
             if (frame == -1).any():
                 return
-            _pcm = self.tts_model.mimi.decode_step(frame[:, :, None])
-            _pcm = np.array(mx.clip(_pcm[0, 0], -1, 1))
-            wav_frames.put_nowait(_pcm)
-            frame_count += 1
+            try:
+                _pcm = self.tts_model.mimi.decode_step(frame[:, :, None])
+                _pcm = np.array(mx.clip(_pcm[0, 0], -1, 1), dtype=np.float32)
+                # Use blocking put with timeout to prevent memory issues
+                wav_frames.put(_pcm, timeout=5.0)
+                frame_count += 1
+                if frame_count % 50 == 0:  # Progress indicator every 50 frames
+                    print(f"Generated {frame_count} audio frames...")
+            except queue.Full:
+                print("Warning: Audio buffer full, dropping frame")
+            except Exception as e:
+                print(f"Error in frame processing: {e}")
+                synthesis_error.set()
 
         gen = TTSGen(self.tts_model, all_attributes, on_frame=_on_frame)
 
         def audio_callback(outdata, frames, time, status):
+            nonlocal audio_buffer
             if status:
                 print(f"Audio status: {status}")
-            try:
-                pcm_data = wav_frames.get(block=False)
-                # Ensure pcm_data is the right type
-                pcm_data = pcm_data.astype(np.float32)
-                if len(pcm_data) <= frames:
-                    outdata[:len(pcm_data), 0] = pcm_data
-                    outdata[len(pcm_data):, 0] = 0
-                else:
-                    outdata[:, 0] = pcm_data[:frames]
-                    # Put back remaining data
-                    wav_frames.put_nowait(pcm_data[frames:])
-            except queue.Empty:
-                outdata[:, 0] = 0
+
+            with buffer_lock:
+                # Fill from existing buffer first
+                if len(audio_buffer) >= frames:
+                    outdata[:, 0] = audio_buffer[:frames]
+                    audio_buffer = audio_buffer[frames:]
+                    return
+
+                # Need more data - get from queue
+                try:
+                    while len(audio_buffer) < frames and not (synthesis_complete.is_set() and wav_frames.empty()):
+                        try:
+                            pcm_data = wav_frames.get(block=False)
+                            audio_buffer = np.concatenate([audio_buffer, pcm_data])
+                        except queue.Empty:
+                            break
+
+                    if len(audio_buffer) >= frames:
+                        outdata[:, 0] = audio_buffer[:frames]
+                        audio_buffer = audio_buffer[frames:]
+                    elif len(audio_buffer) > 0:
+                        # Partial buffer
+                        outdata[:len(audio_buffer), 0] = audio_buffer
+                        outdata[len(audio_buffer):, 0] = 0
+                        audio_buffer = np.array([], dtype=np.float32)
+                    else:
+                        # No data available
+                        outdata[:, 0] = 0
+
+                except Exception as e:
+                    print(f"Error in audio callback: {e}")
+                    outdata[:, 0] = 0
 
         def run_synthesis():
             try:
+                print("Starting synthesis...")
                 first_turn = True
                 entries = prepare_script(self.tts_model, text, first_turn=first_turn)
 
                 if not entries:
                     print("Error: No text entries created!")
+                    synthesis_error.set()
                     return
 
-                for entry in entries:
+                for i, entry in enumerate(entries):
+                    if synthesis_error.is_set():
+                        break
+                    print(f"Processing entry {i+1}/{len(entries)}")
                     gen.append_entry(entry)
                     gen.process()
 
-                gen.process_last()
+                if not synthesis_error.is_set():
+                    print("Finalizing synthesis...")
+                    gen.process_last()
+                    print("Synthesis complete!")
+
             except Exception as e:
                 print(f"Error during synthesis: {e}")
+                synthesis_error.set()
+            finally:
+                synthesis_complete.set()
 
         try:
             # Check if audio device is available
             try:
                 default_device = sd.default.device
-                print(f"Using audio device: {default_device}")
+                device_info = sd.query_devices(default_device)
+                print(f"Using audio device: {device_info['name']} (Sample rate: {device_info.get('default_samplerate', 'unknown')})")
             except Exception as device_error:
                 print(f"Warning: Audio device check failed: {device_error}")
 
+            # Calculate optimal blocksize based on sample rate
+            sample_rate = self.tts_model.mimi.sample_rate
+            blocksize = int(sample_rate * 0.1)  # 100ms blocks for low latency
+
+            print(f"Starting audio stream (Sample rate: {sample_rate}, Block size: {blocksize})...")
+
+            # Start synthesis in a separate thread
+            synthesis_thread = threading.Thread(target=run_synthesis)
+            synthesis_thread.daemon = True
+            synthesis_thread.start()
+
             # Start streaming audio output
             with sd.OutputStream(
-                samplerate=self.tts_model.mimi.sample_rate,
-                blocksize=1920,
+                samplerate=sample_rate,
+                blocksize=blocksize,
                 channels=1,
                 callback=audio_callback,
                 dtype=np.float32,
             ):
-                run_synthesis()
+                print("Audio stream started. Streaming in real-time...")
 
-                # Wait for audio to finish playing
-                import time
-                print("Playing audio...")
-                while wav_frames.qsize() > 0:
+                # Wait for synthesis to complete or error
+                while synthesis_thread.is_alive():
+                    synthesis_thread.join(timeout=0.1)
+                    if synthesis_error.is_set():
+                        print("Synthesis error detected, stopping...")
+                        break
+
+                # Continue playing remaining audio
+                print("Synthesis finished, playing remaining audio...")
+                while not wav_frames.empty() or len(audio_buffer) > 0:
                     time.sleep(0.1)
-                time.sleep(1)  # Extra time for audio to finish
+                    if synthesis_error.is_set():
+                        break
 
-                print("Audio playback completed.")
-                return True
+                # Small delay to ensure all audio is played
+                time.sleep(0.5)
+
+                print("Audio streaming completed.")
+                return not synthesis_error.is_set()
 
         except Exception as e:
             print(f"Error during streaming: {e}")
+            synthesis_error.set()
             return False
 
 
@@ -486,24 +566,45 @@ def extract_text_from_url(url, exit_on_error=True):
             return None
 
 
-async def play_text(moshi_tts, text, voice):
+async def play_text(moshi_tts, text, voice, chunk_size=1000):
     """Convert text to speech using Moshi and stream the resulting audio.
 
     Args:
         moshi_tts: Initialized Moshi TTS engine
         text: Text to convert to speech
         voice: Voice to use for synthesis
+        chunk_size: Maximum characters per text chunk for long texts
     """
     if not text.strip():
         print("Error: No text provided")
         return
 
-    success = moshi_tts.synthesize_and_play_streaming(text, voice)
-    if not success:
-        print("Error: Failed to synthesize and play audio")
+    print(f"Using voice: {voice}")
+    print(f"Text length: {len(text)} characters")
+
+    # Split long texts into chunks for better streaming
+    if len(text) > chunk_size:
+        print(f"Long text detected. Splitting into chunks for better streaming...")
+        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+
+        for i, chunk in enumerate(chunks, 1):
+            print(f"\nProcessing chunk {i}/{len(chunks)}...")
+            success = moshi_tts.synthesize_and_play_streaming(chunk, voice)
+            if not success:
+                print(f"Error: Failed to synthesize chunk {i}")
+                return
+
+            # Brief pause between chunks
+            if i < len(chunks):
+                print("Preparing next chunk...")
+                time.sleep(0.5)
+    else:
+        success = moshi_tts.synthesize_and_play_streaming(text, voice)
+        if not success:
+            print("Error: Failed to synthesize and play audio")
 
 
-async def run_interactive_mode(moshi_tts, voice, voice_manager):
+async def run_interactive_mode(moshi_tts, voice, voice_manager, chunk_size=1000):
     """Run the application in interactive mode with persistent model and command history.
 
     Provides a command-line interface where users can enter text, change voices,
@@ -513,6 +614,7 @@ async def run_interactive_mode(moshi_tts, voice, voice_manager):
         moshi_tts: Initialized Moshi TTS engine
         voice: Initial voice to use
         voice_manager: Voice management object for validation and information
+        chunk_size: Maximum characters per text chunk for long texts
     """
     print("\n=== Moshi Interactive Mode ===")
     print("Available commands:")
@@ -553,7 +655,7 @@ async def run_interactive_mode(moshi_tts, voice, voice_manager):
 
                     text = read_from_file(arg, exit_on_error=False)
                     if text:
-                        await play_text(moshi_tts, text, current_voice)
+                        await play_text(moshi_tts, text, current_voice, chunk_size)
                     else:
                         print("Warning: Nothing to read.")
 
@@ -564,7 +666,7 @@ async def run_interactive_mode(moshi_tts, voice, voice_manager):
 
                     text = extract_text_from_url(arg, exit_on_error=False)
                     if text:
-                        await play_text(moshi_tts, text, current_voice)
+                        await play_text(moshi_tts, text, current_voice, chunk_size)
                     else:
                         print("Warning: Nothing to read.")
 
@@ -603,7 +705,7 @@ async def run_interactive_mode(moshi_tts, voice, voice_manager):
                             text_lines.append(line)
 
                 text = '\n'.join(text_lines)
-                await play_text(moshi_tts, text, current_voice)
+                await play_text(moshi_tts, text, current_voice, chunk_size)
 
         except KeyboardInterrupt:
             print("\nInterrupted. Use /q to quit.")
@@ -641,6 +743,18 @@ def main():
         choices=[0, 4, 8],
         help="The quantization to be applied: 0 for none, 4 for 4 bits, 8 for 8 bits (default: 8).",
     )
+    parser.add_argument(
+        "--buffer-size",
+        type=int,
+        default=10,
+        help="Audio buffer size for streaming (default: 10). Larger values use more memory but may reduce audio dropouts.",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=1000,
+        help="Maximum characters per text chunk for long texts (default: 1000). Smaller values enable faster start times.",
+    )
 
     args = parser.parse_args()
 
@@ -654,7 +768,8 @@ def main():
     moshi_tts = MoshiTTS(args.hf_repo, args.voice_repo, quantize_value)
 
     if args.interactive:
-        asyncio.run(run_interactive_mode(moshi_tts, args.voice, voice_manager))
+        moshi_tts.buffer_size = args.buffer_size
+        asyncio.run(run_interactive_mode(moshi_tts, args.voice, voice_manager, chunk_size=args.chunk_size))
     else:
         try:
             if args.file:
@@ -672,7 +787,9 @@ def main():
             print("\nInput interrupted. Exiting.", file=sys.stderr)
             sys.exit(1)
 
-        asyncio.run(play_text(moshi_tts, text, args.voice))
+        # Configure streaming parameters
+        moshi_tts.buffer_size = args.buffer_size
+        asyncio.run(play_text(moshi_tts, text, args.voice, chunk_size=args.chunk_size))
 
 
 if __name__ == "__main__":
