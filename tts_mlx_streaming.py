@@ -14,6 +14,8 @@ import json
 import queue
 import sys
 import time
+import wave
+import threading
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -59,6 +61,44 @@ def _make_null(
     # When using CFG, returns the null conditions.
     return dropout_all_conditions(all_attributes)
 
+
+class StreamingWavWriter:
+    def __init__(self, filename: str, sample_rate: int, channels: int = 1, buffer_size: int = 10):
+        self.filename = filename
+        self.sample_rate = sample_rate
+        self.channels = channels
+        self.buffer_size = buffer_size
+        self.buffer = []
+        self.wav_file = None
+        self.lock = threading.Lock()
+
+    def __enter__(self):
+        self.wav_file = wave.open(self.filename, 'wb')
+        self.wav_file.setnchannels(self.channels)
+        self.wav_file.setsampwidth(2)  # 16-bit
+        self.wav_file.setframerate(self.sample_rate)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.wav_file:
+            # Write any remaining buffered frames
+            self._flush_buffer()
+            self.wav_file.close()
+
+    def write_frame(self, pcm_data: np.ndarray):
+        with self.lock:
+            self.buffer.append(pcm_data)
+            if len(self.buffer) >= self.buffer_size:
+                self._flush_buffer()
+
+    def _flush_buffer(self):
+        if self.buffer and self.wav_file:
+            # Concatenate buffered frames
+            audio_data = np.concatenate(self.buffer, axis=0)
+            # Convert to 16-bit PCM
+            audio_16bit = (audio_data * 32767).astype(np.int16)
+            self.wav_file.writeframes(audio_16bit.tobytes())
+            self.buffer.clear()
 
 @dataclass
 class TTSGen:
@@ -260,13 +300,21 @@ def main():
     ]
 
     wav_frames = queue.Queue()
+    wav_writer = None
 
     def _on_frame(frame):
         if (frame == -1).any():
             return
         _pcm = tts_model.mimi.decode_step(frame[:, :, None])
         _pcm = np.array(mx.clip(_pcm[0, 0], -1, 1))
-        wav_frames.put_nowait(_pcm)
+
+        if args.out == "-":
+            # For audio playback
+            wav_frames.put_nowait(_pcm)
+        else:
+            # For file writing
+            if wav_writer:
+                wav_writer.write_frame(_pcm)
 
     gen = TTSGen(tts_model, all_attributes, on_frame=_on_frame)
 
@@ -302,15 +350,9 @@ def main():
                     break
                 time.sleep(1)
     else:
-        run()
-        frames = []
-        while True:
-            try:
-                frames.append(wav_frames.get_nowait())
-            except queue.Empty:
-                break
-        wav = np.concat(frames, -1)
-        sphn.write_wav(args.out, wav, mimi.sample_rate)
+        with StreamingWavWriter(args.out, mimi.sample_rate, channels=1, buffer_size=10) as writer:
+            wav_writer = writer
+            run()
 
 
 if __name__ == "__main__":
