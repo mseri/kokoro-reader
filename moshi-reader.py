@@ -728,7 +728,7 @@ def main():
     parser.add_argument(
         "--hf-repo",
         type=str,
-        default=DEFAULT_DSM_TTS_REPO,
+        default="kyutai/tts-0.75b-en-public",
         help="HF repo in which to look for the pretrained models.",
     )
     parser.add_argument(
