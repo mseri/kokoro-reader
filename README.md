@@ -2,7 +2,7 @@
 
 A simple text-to-speech CLI tool using the Kokoro speech synthesis engine.
 
-> **Note**: This repository also includes an experimental version (`chatterbox-reader.py`) that uses the [streaming version of Chatterbox](https://github.com/davidbrowne17/chatterbox-streaming). However, this version is currently very slow and not suitable for practical use at the moment.
+> **Note**: This repository also includes an experimental version (`chatterbox-reader.py`) in teh `#chatterbox` branch, using [streaming version of Chatterbox](https://github.com/davidbrowne17/chatterbox-streaming) instead of `kokoro`. However, this version is currently very slow and not suitable for practical use at the moment. The `#moshi` branch contains a version using Moshi TTS, even more experimental and not recommended for use.
 
 ## Features
 
